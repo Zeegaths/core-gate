@@ -2,8 +2,7 @@ name: PR Quality Gate
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
-  workflow_dispatch:
+    types: [opened, synchronize, reopened]
 
 permissions:
   pull-requests: write
@@ -22,15 +21,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Fetch PR data and score
+      - name: Score PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
@@ -38,4 +36,4 @@ jobs:
           REPO: ${{ github.repository }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: npm run gate
+        run: node scripts/scorer.js
