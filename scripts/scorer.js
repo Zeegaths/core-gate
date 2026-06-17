@@ -327,41 +327,88 @@ function checkTitlePrefix(title) {
 }
 
 // Check 2 — Description quality (20pts)
+// Scored on quality signals, not just length.
+// A short but technically specific description outscores a long buzzword-filled one.
+//
+// Signal breakdown (20pts total):
+//   6pts — explains the problem (what is broken/missing)
+//   6pts — technical specificity (file names, function names, Bitcoin terms)
+//   4pts — issue reference (Fixes #XXXX)
+//   2pts — no @mentions
+//   2pts — no buzzword language
+//
+// Penalties:
+//   -5pts — missing issue link (if description exists)
+//   -5pts — consensus change without BIP reference
+//   -5pts — @mentions present
+//   -5pts — buzzword density >= 2
+//   WIP   — capped at 10pts regardless of signals
 function checkDescription(body, title, risk, authorPriorMerges) {
   const cleaned    = body.replace(/<!--[\s\S]*?-->/g, "").trim();
+  const lower      = cleaned.toLowerCase();
   const hasMention = /(^|\s)@\w+/.test(cleaned);
   const isWIP      = /\[wip\]/i.test(title) || /\b(wip|work in progress)\b/i.test(cleaned);
   const hasIssueRef = /(fixes|closes|resolves|refs?)\s+#\d+/i.test(cleaned) || /#\d+/.test(cleaned);
-  const buzzwordsFound = BUZZWORDS.filter(w => cleaned.toLowerCase().includes(w));
+  const buzzwordsFound = BUZZWORDS.filter(w => lower.includes(w));
   const hasBuzzwords   = buzzwordsFound.length >= 2;
 
   // Consensus changes need a BIP reference
-  const needsBIP  = risk.requiresBIP;
-  const hasBIP    = /BIP[-\s]?\d+/i.test(cleaned);
+  const needsBIP = risk.requiresBIP;
+  const hasBIP   = /BIP[-\s]?\d+/i.test(cleaned);
 
-  let score  = 0;
+  // Signal 1 — problem statement (6pts)
+  // Does the description explain what is broken, wrong, or missing?
+  const hasProblemStatement = /\b(fix(es|ed)?|bug|issue|problem|broken|fail(s|ed)?|error|wrong|incorrect|crash(es|ed)?|regression|edge case|undefined|unexpected|missing|lack)\b/i.test(cleaned);
+  const problemPts = hasProblemStatement ? 6 : 0;
+
+  // Signal 2 — technical specificity (6pts)
+  // Bitcoin Core-specific terms, file paths, function names, or concrete values
+  // A description mentioning src/wallet/ or CWallet:: is almost certainly written by a human who read the code
+  const hasTechnicalDetail = (
+    /src\/[a-z]/.test(cleaned) ||                          // file path like src/wallet/
+    /\b[A-Z][a-z]+::[A-Z][a-zA-Z]+/.test(cleaned) ||      // C++ method like CWallet::CreateTransaction
+    /\b(sat(oshi)?s?|btc|utxo|mempool|scriptpubkey|witness|segwit|taproot|schnorr|secp256k1|bip\d+)\b/i.test(cleaned) || // Bitcoin terms
+    /\b(assert|nullptr|overflow|underflow|integer|race condition|deadlock|mutex|lock|thread)\b/i.test(cleaned) || // technical CS terms
+    /#\d{4,}/.test(cleaned) ||                             // issue/PR reference with 4+ digit number
+    /0x[0-9a-fA-F]+/.test(cleaned)                        // hex value
+  );
+  const technicalPts = hasTechnicalDetail ? 6 : 0;
+
+  // Signal 3 — issue reference (4pts)
+  const issuePts = hasIssueRef ? 4 : 0;
+
+  // Signal 4 — no @mentions (2pts)
+  const mentionPts = hasMention ? 0 : 2;
+
+  // Signal 5 — no buzzwords (2pts)
+  const buzzPts = hasBuzzwords ? 0 : 2;
+
+  let score = problemPts + technicalPts + issuePts + mentionPts + buzzPts;
   const notes = [];
 
-  if (isWIP) {
-    score = 10;
-    notes.push("Marked [WIP] — partial credit");
-  } else if (cleaned.length >= 100) {
-    score = 20;
-    notes.push("Description has sufficient detail");
-  } else if (cleaned.length >= 50) {
-    score = 10;
-    notes.push("Description present but brief — explain *why*, not just *what*");
-  } else {
+  // Empty description
+  if (cleaned.length === 0) {
     score = 0;
-    notes.push("Description too short — explain the problem, approach, and impact");
+    notes.push("No description — explain the problem, approach, and impact");
+  } else if (isWIP) {
+    score = Math.min(score, 10);
+    notes.push("Marked [WIP] — partial credit");
   }
 
-  if (hasIssueRef)  notes.push("✓ Issue reference found");
-  else if (score > 0) { score -= 5; notes.push("No issue reference — add `Fixes #XXXX` or `Closes #XXXX`"); }
+  // Signal feedback
+  if (hasProblemStatement)  notes.push("✓ Problem statement found");
+  else                      notes.push("Missing problem statement — what is broken or wrong?");
 
-  if (needsBIP && !hasBIP) { score -= 5; notes.push("Consensus change requires a BIP reference in the description"); }
-  if (hasMention)           { score -= 5; notes.push("Remove @mentions — they spam every fork's notification feed"); }
-  if (hasBuzzwords)         { score -= 5; notes.push(`Buzzword language detected ("${buzzwordsFound.slice(0, 2).join('", "')}") — be specific`); }
+  if (hasTechnicalDetail)   notes.push("✓ Technical specificity found");
+  else                      notes.push("Missing technical detail — mention file paths, function names, or specific values");
+
+  if (hasIssueRef)          notes.push("✓ Issue reference found");
+  else if (cleaned.length > 0) notes.push("No issue reference — add `Fixes #XXXX` or `Closes #XXXX`");
+
+  // Penalties
+  if (needsBIP && !hasBIP) { score -= 5; notes.push("Consensus change requires a BIP reference"); }
+  if (hasMention)           { notes.push("Remove @mentions — they spam every fork's notification feed"); }
+  if (hasBuzzwords)         { notes.push(`Buzzword language detected ("${buzzwordsFound.slice(0, 2).join('", "')}") — be specific`); }
 
   score = Math.max(0, Math.min(20, score));
 
