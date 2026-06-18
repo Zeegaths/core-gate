@@ -28,7 +28,7 @@ jobs:
       - name: Score PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
